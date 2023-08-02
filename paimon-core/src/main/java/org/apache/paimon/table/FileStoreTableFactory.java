@@ -23,6 +23,7 @@ import org.apache.paimon.WriteMode;
 import org.apache.paimon.catalog.CatalogContext;
 import org.apache.paimon.fs.FileIO;
 import org.apache.paimon.fs.Path;
+import org.apache.paimon.listener.Listeners;
 import org.apache.paimon.operation.Lock;
 import org.apache.paimon.options.Options;
 import org.apache.paimon.schema.SchemaManager;
@@ -33,7 +34,9 @@ import java.io.UncheckedIOException;
 
 import static org.apache.paimon.CoreOptions.PATH;
 
-/** Factory to create {@link FileStoreTable}. */
+/**
+ * Factory to create {@link FileStoreTable}.
+ */
 public class FileStoreTableFactory {
 
     public static FileStoreTable create(CatalogContext context) {
@@ -63,16 +66,16 @@ public class FileStoreTableFactory {
                                                 "Schema file not found in location "
                                                         + tablePath
                                                         + ". Please create table first."));
-        return create(fileIO, tablePath, tableSchema, options, Lock.emptyFactory());
+        return create(fileIO, tablePath, tableSchema, options, Lock.emptyFactory(), null);
     }
 
     public static FileStoreTable create(FileIO fileIO, Path tablePath, TableSchema tableSchema) {
-        return create(fileIO, tablePath, tableSchema, new Options(), Lock.emptyFactory());
+        return create(fileIO, tablePath, tableSchema, new Options(), Lock.emptyFactory(), null);
     }
 
     public static FileStoreTable create(
             FileIO fileIO, Path tablePath, TableSchema tableSchema, Lock.Factory lockFactory) {
-        return create(fileIO, tablePath, tableSchema, new Options(), lockFactory);
+        return create(fileIO, tablePath, tableSchema, new Options(), lockFactory, null);
     }
 
     public static FileStoreTable create(
@@ -80,7 +83,8 @@ public class FileStoreTableFactory {
             Path tablePath,
             TableSchema tableSchema,
             Options dynamicOptions,
-            Lock.Factory lockFactory) {
+            Lock.Factory lockFactory,
+            Listeners listener) {
         FileStoreTable table;
         Options coreOptions = Options.fromMap(tableSchema.options());
         WriteMode writeMode = coreOptions.get(CoreOptions.WRITE_MODE);
@@ -101,7 +105,7 @@ public class FileStoreTableFactory {
             } else {
                 table =
                         new ChangelogWithKeyFileStoreTable(
-                                fileIO, tablePath, tableSchema, lockFactory);
+                                fileIO, tablePath, tableSchema, lockFactory, listener);
             }
         }
         return table.copy(dynamicOptions.toMap());

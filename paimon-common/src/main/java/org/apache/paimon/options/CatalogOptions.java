@@ -21,10 +21,13 @@ package org.apache.paimon.options;
 import org.apache.paimon.table.TableType;
 
 import java.time.Duration;
+import java.util.Map;
 
 import static org.apache.paimon.options.ConfigOptions.key;
 
-/** Options for catalog. */
+/**
+ * Options for catalog.
+ */
 public class CatalogOptions {
 
     public static final ConfigOption<String> WAREHOUSE =
@@ -75,4 +78,16 @@ public class CatalogOptions {
                     .defaultValue(true)
                     .withDescription(
                             "Allow to fallback to hadoop File IO when no file io found for the scheme.");
+
+    public static final ConfigOption<String> ALLOWED_LISTENER =
+            key("listener.names")
+                    .stringType()
+                    .noDefaultValue()
+                    .withDescription("The listeners to use");
+
+    public static final ConfigOption<Map<String, String>> LISTENER_OPTIONS =
+            key("listener.option")
+                    .mapType()
+                    .noDefaultValue()
+                    .withDescription("The option of listener, like listener.option.{name}.{key}={value}");
 }

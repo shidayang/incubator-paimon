@@ -21,7 +21,9 @@ package org.apache.paimon.catalog;
 import org.apache.paimon.annotation.VisibleForTesting;
 import org.apache.paimon.fs.FileIO;
 import org.apache.paimon.fs.Path;
+import org.apache.paimon.listener.Listeners;
 import org.apache.paimon.operation.Lock;
+import org.apache.paimon.options.Options;
 import org.apache.paimon.schema.TableSchema;
 import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.FileStoreTableFactory;
@@ -32,7 +34,9 @@ import org.apache.paimon.utils.StringUtils;
 import java.util.HashMap;
 import java.util.Map;
 
-/** Common implementation of {@link Catalog}. */
+/**
+ * Common implementation of {@link Catalog}.
+ */
 public abstract class AbstractCatalog implements Catalog {
 
     public static final String DB_SUFFIX = ".db";
@@ -43,12 +47,19 @@ public abstract class AbstractCatalog implements Catalog {
 
     protected final Map<String, String> tableDefaultOptions;
 
+    protected final Listeners listeners;
+
     protected AbstractCatalog(FileIO fileIO) {
         this.fileIO = fileIO;
         this.tableDefaultOptions = new HashMap<>();
+        this.listeners = Listeners.emptyListeners();
     }
 
     protected AbstractCatalog(FileIO fileIO, Map<String, String> options) {
+        this(fileIO, options, Listeners.emptyListeners());
+    }
+
+    protected AbstractCatalog(FileIO fileIO, Map<String, String> options, Listeners listeners) {
         this.fileIO = fileIO;
         this.tableDefaultOptions = new HashMap<>();
 
@@ -59,6 +70,7 @@ public abstract class AbstractCatalog implements Catalog {
                                 this.tableDefaultOptions.put(
                                         key.substring(TABLE_DEFAULT_OPTION_PREFIX.length()),
                                         options.get(key)));
+        this.listeners = listeners;
     }
 
     @Override
@@ -85,7 +97,9 @@ public abstract class AbstractCatalog implements Catalog {
                 fileIO,
                 getDataTableLocation(identifier),
                 tableSchema,
-                Lock.factory(lockFactory().orElse(null), identifier));
+                new Options(),
+                Lock.factory(lockFactory().orElse(null), identifier),
+                listeners);
     }
 
     @VisibleForTesting

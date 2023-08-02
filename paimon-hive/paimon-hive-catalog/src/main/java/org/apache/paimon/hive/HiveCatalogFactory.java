@@ -23,6 +23,7 @@ import org.apache.paimon.catalog.CatalogContext;
 import org.apache.paimon.catalog.CatalogFactory;
 import org.apache.paimon.fs.FileIO;
 import org.apache.paimon.fs.Path;
+import org.apache.paimon.listener.Listeners;
 import org.apache.paimon.options.CatalogOptions;
 import org.apache.paimon.options.ConfigOption;
 import org.apache.paimon.options.ConfigOptions;
@@ -53,7 +54,10 @@ public class HiveCatalogFactory implements CatalogFactory {
     }
 
     @Override
-    public Catalog create(FileIO fileIO, Path warehouse, CatalogContext context) {
+    public Catalog create(FileIO fileIO,
+                          Path warehouse,
+                          CatalogContext context,
+                          Listeners listeners) {
         String uri =
                 Preconditions.checkNotNull(
                         context.options().get(CatalogOptions.URI),

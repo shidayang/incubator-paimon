@@ -34,6 +34,7 @@ import org.apache.paimon.index.IndexMaintainer;
 import org.apache.paimon.io.DataFileMeta;
 import org.apache.paimon.io.KeyValueFileReaderFactory;
 import org.apache.paimon.io.KeyValueFileWriterFactory;
+import org.apache.paimon.listener.CompactEvents;
 import org.apache.paimon.lookup.hash.HashLookupStoreFactory;
 import org.apache.paimon.mergetree.Levels;
 import org.apache.paimon.mergetree.LookupLevels;
@@ -67,7 +68,9 @@ import java.util.function.Supplier;
 
 import static org.apache.paimon.io.DataFileMeta.getMaxSequenceNumber;
 
-/** {@link FileStoreWrite} for {@link KeyValueFileStore}. */
+/**
+ * {@link FileStoreWrite} for {@link KeyValueFileStore}.
+ */
 public class KeyValueFileStoreWrite extends MemoryFileStoreWrite<KeyValue> {
 
     private static final Logger LOG = LoggerFactory.getLogger(KeyValueFileStoreWrite.class);
@@ -81,6 +84,8 @@ public class KeyValueFileStoreWrite extends MemoryFileStoreWrite<KeyValue> {
     private final FileIO fileIO;
     private final RowType keyType;
     private final RowType valueType;
+
+    private final CompactEvents compactEvents;
 
     public KeyValueFileStoreWrite(
             FileIO fileIO,
@@ -97,7 +102,8 @@ public class KeyValueFileStoreWrite extends MemoryFileStoreWrite<KeyValue> {
             FileStoreScan scan,
             @Nullable IndexMaintainer.Factory<KeyValue> indexFactory,
             CoreOptions options,
-            KeyValueFieldsExtractor extractor) {
+            KeyValueFieldsExtractor extractor,
+            CompactEvents compactEvents) {
         super(commitUser, snapshotManager, scan, options, indexFactory);
         this.fileIO = fileIO;
         this.keyType = keyType;
@@ -125,6 +131,7 @@ public class KeyValueFileStoreWrite extends MemoryFileStoreWrite<KeyValue> {
         this.valueEqualiserSupplier = valueEqualiserSupplier;
         this.mfFactory = mfFactory;
         this.options = options;
+        this.compactEvents = compactEvents;
     }
 
     @Override
@@ -192,6 +199,7 @@ public class KeyValueFileStoreWrite extends MemoryFileStoreWrite<KeyValue> {
         } else {
             Comparator<InternalRow> keyComparator = keyComparatorSupplier.get();
             CompactRewriter rewriter = createRewriter(partition, bucket, keyComparator, levels);
+            CompactEvents copyEvents = compactEvents.copyFor(partition, bucket);
             return new MergeTreeCompactManager(
                     compactExecutor,
                     levels,
@@ -199,7 +207,8 @@ public class KeyValueFileStoreWrite extends MemoryFileStoreWrite<KeyValue> {
                     keyComparator,
                     options.targetFileSize(),
                     options.numSortedRunStopTrigger(),
-                    rewriter);
+                    rewriter,
+                    copyEvents);
         }
     }
 

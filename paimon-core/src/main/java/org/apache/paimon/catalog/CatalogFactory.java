@@ -21,6 +21,8 @@ package org.apache.paimon.catalog;
 import org.apache.paimon.annotation.Public;
 import org.apache.paimon.fs.FileIO;
 import org.apache.paimon.fs.Path;
+import org.apache.paimon.listener.Listener;
+import org.apache.paimon.listener.Listeners;
 import org.apache.paimon.utils.Preconditions;
 
 import java.io.IOException;
@@ -44,7 +46,7 @@ public interface CatalogFactory {
 
     String identifier();
 
-    Catalog create(FileIO fileIO, Path warehouse, CatalogContext context);
+    Catalog create(FileIO fileIO, Path warehouse, CatalogContext context, Listeners listeners);
 
     static Path warehouse(CatalogContext context) {
         String warehouse =
@@ -110,6 +112,12 @@ public interface CatalogFactory {
             throw new UncheckedIOException(e);
         }
 
-        return factories.get(0).create(fileIO, warehousePath, context);
+        List<Listener> listenerList = new ArrayList<>();
+        ServiceLoader.load(Listener.class, classLoader)
+                .iterator().forEachRemaining(listenerList::add);
+
+        Listeners listeners = new Listeners(listenerList, context.options());
+
+        return factories.get(0).create(fileIO, warehousePath, context, listeners);
     }
 }

@@ -21,6 +21,7 @@ package org.apache.paimon.catalog;
 import org.apache.paimon.fs.FileIO;
 import org.apache.paimon.fs.FileStatus;
 import org.apache.paimon.fs.Path;
+import org.apache.paimon.listener.Listeners;
 import org.apache.paimon.schema.Schema;
 import org.apache.paimon.schema.SchemaChange;
 import org.apache.paimon.schema.SchemaManager;
@@ -44,6 +45,13 @@ public class FileSystemCatalog extends AbstractCatalog {
 
     public FileSystemCatalog(FileIO fileIO, Path warehouse, Map<String, String> options) {
         super(fileIO, options);
+        this.warehouse = warehouse;
+    }
+
+    public FileSystemCatalog(FileIO fileIO, Path warehouse,
+                             Map<String, String> options,
+                             Listeners listeners) {
+        super(fileIO, options, listeners);
         this.warehouse = warehouse;
     }
 

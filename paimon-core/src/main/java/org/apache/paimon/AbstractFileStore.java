@@ -23,6 +23,8 @@ import org.apache.paimon.data.InternalRow;
 import org.apache.paimon.fs.FileIO;
 import org.apache.paimon.index.HashIndexFile;
 import org.apache.paimon.index.IndexFileHandler;
+import org.apache.paimon.listener.CommitEvents;
+import org.apache.paimon.listener.Listeners;
 import org.apache.paimon.manifest.IndexManifestFile;
 import org.apache.paimon.manifest.ManifestFile;
 import org.apache.paimon.manifest.ManifestList;
@@ -57,6 +59,7 @@ public abstract class AbstractFileStore<T> implements FileStore<T> {
     protected final long schemaId;
     protected final CoreOptions options;
     protected final RowType partitionType;
+    protected final Listeners listeners;
 
     @Nullable private final SegmentsCache<String> writeManifestCache;
 
@@ -65,7 +68,8 @@ public abstract class AbstractFileStore<T> implements FileStore<T> {
             SchemaManager schemaManager,
             long schemaId,
             CoreOptions options,
-            RowType partitionType) {
+            RowType partitionType,
+            Listeners listeners) {
         this.fileIO = fileIO;
         this.schemaManager = schemaManager;
         this.schemaId = schemaId;
@@ -76,6 +80,7 @@ public abstract class AbstractFileStore<T> implements FileStore<T> {
                 writeManifestCache.getBytes() == 0
                         ? null
                         : new SegmentsCache<>(options.pageSize(), writeManifestCache);
+        this.listeners = listeners;
     }
 
     public FileStorePathFactory pathFactory() {
@@ -160,7 +165,8 @@ public abstract class AbstractFileStore<T> implements FileStore<T> {
                 options.manifestFullCompactionThresholdSize(),
                 options.manifestMergeMinCount(),
                 partitionType.getFieldCount() > 0 && options.dynamicPartitionOverwrite(),
-                newKeyComparator());
+                newKeyComparator(),
+                new CommitEvents(listeners, pathFactory()));
     }
 
     @Override

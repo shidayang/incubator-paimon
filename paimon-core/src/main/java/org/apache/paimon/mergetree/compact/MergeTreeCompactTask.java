@@ -23,11 +23,14 @@ import org.apache.paimon.compact.CompactTask;
 import org.apache.paimon.compact.CompactUnit;
 import org.apache.paimon.data.InternalRow;
 import org.apache.paimon.io.DataFileMeta;
+import org.apache.paimon.listener.CompactEvent;
+import org.apache.paimon.listener.CompactEvents;
 import org.apache.paimon.mergetree.SortedRun;
 
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.stream.Collectors;
 
 import static java.util.Collections.singletonList;
 
@@ -45,12 +48,18 @@ public class MergeTreeCompactTask extends CompactTask {
     // metric
     private int upgradeFilesNum;
 
+    private boolean fullCompaction;
+
+    private CompactEvents compactEvents;
+
     public MergeTreeCompactTask(
             Comparator<InternalRow> keyComparator,
             long minFileSize,
             CompactRewriter rewriter,
             CompactUnit unit,
-            boolean dropDelete) {
+            boolean dropDelete,
+            boolean fullCompaction,
+            CompactEvents compactEvents) {
         this.minFileSize = minFileSize;
         this.rewriter = rewriter;
         this.outputLevel = unit.outputLevel();
@@ -58,10 +67,32 @@ public class MergeTreeCompactTask extends CompactTask {
         this.dropDelete = dropDelete;
 
         this.upgradeFilesNum = 0;
+        this.fullCompaction = fullCompaction;
+        this.compactEvents = compactEvents;
     }
 
     @Override
     protected CompactResult doCompact() throws Exception {
+        List<DataFileMeta> before = partitioned.stream().flatMap(List::stream)
+                .flatMap(s -> s.files().stream()).collect(Collectors.toList());
+        notifyEvent(CompactEvent.State.START,
+                before,
+                null,
+                null);
+
+        CompactResult result;
+        try {
+            result = internalCompact();
+        } catch (Exception e) {
+            notifyEvent(CompactEvent.State.FAILED, before, null, e.getMessage());
+            throw e;
+        }
+
+        notifyEvent(CompactEvent.State.SUCCESS, before, result.after(), null);
+        return result;
+    }
+
+    private CompactResult internalCompact() throws Exception {
         List<List<SortedRun>> candidate = new ArrayList<>();
         CompactResult result = new CompactResult();
 
@@ -99,6 +130,24 @@ public class MergeTreeCompactTask extends CompactTask {
         return String.format(
                 "%s, upgrade file num = %d",
                 super.logMetric(startMillis, compactBefore, compactAfter), upgradeFilesNum);
+    }
+
+    private void notifyEvent(CompactEvent.State state,
+                             List<DataFileMeta> before,
+                             List<DataFileMeta> after,
+                             String failReason) {
+        if (compactEvents == null) {
+            return;
+        }
+
+        compactEvents.compactEvent(
+                        state,
+                        fullCompaction,
+                        System.currentTimeMillis(),
+                        before,
+                        after,
+                        failReason
+        );
     }
 
     private void upgrade(DataFileMeta file, CompactResult toUpdate) throws Exception {

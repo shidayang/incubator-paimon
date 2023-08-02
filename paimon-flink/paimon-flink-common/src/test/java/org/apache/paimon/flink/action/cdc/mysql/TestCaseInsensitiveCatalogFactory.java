@@ -25,6 +25,7 @@ import org.apache.paimon.catalog.FileSystemCatalog;
 import org.apache.paimon.catalog.Identifier;
 import org.apache.paimon.fs.FileIO;
 import org.apache.paimon.fs.Path;
+import org.apache.paimon.listener.ListenerFactory;
 import org.apache.paimon.schema.Schema;
 import org.apache.paimon.schema.SchemaChange;
 import org.apache.paimon.types.DataField;
@@ -42,7 +43,7 @@ public class TestCaseInsensitiveCatalogFactory implements CatalogFactory {
     }
 
     @Override
-    public Catalog create(FileIO fileIO, Path warehouse, CatalogContext context) {
+    public Catalog create(FileIO fileIO, Path warehouse, CatalogContext context, List<ListenerFactory> listenerFactories) {
         return new FileSystemCatalog(fileIO, warehouse, context.options().toMap()) {
             @Override
             public void createDatabase(String name, boolean ignoreIfExists)

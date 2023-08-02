@@ -25,6 +25,7 @@ import org.apache.paimon.compact.CompactResult;
 import org.apache.paimon.compact.CompactUnit;
 import org.apache.paimon.data.InternalRow;
 import org.apache.paimon.io.DataFileMeta;
+import org.apache.paimon.listener.CompactEvents;
 import org.apache.paimon.mergetree.LevelSortedRun;
 import org.apache.paimon.mergetree.Levels;
 import org.apache.paimon.utils.Preconditions;
@@ -40,7 +41,9 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.stream.Collectors;
 
-/** Compact manager for {@link KeyValueFileStore}. */
+/**
+ * Compact manager for {@link KeyValueFileStore}.
+ */
 public class MergeTreeCompactManager extends CompactFutureManager {
 
     private static final Logger LOG = LoggerFactory.getLogger(MergeTreeCompactManager.class);
@@ -52,6 +55,7 @@ public class MergeTreeCompactManager extends CompactFutureManager {
     private final long minFileSize;
     private final int numSortedRunStopTrigger;
     private final CompactRewriter rewriter;
+    private final CompactEvents compactEvents;
 
     public MergeTreeCompactManager(
             ExecutorService executor,
@@ -60,7 +64,8 @@ public class MergeTreeCompactManager extends CompactFutureManager {
             Comparator<InternalRow> keyComparator,
             long minFileSize,
             int numSortedRunStopTrigger,
-            CompactRewriter rewriter) {
+            CompactRewriter rewriter,
+            CompactEvents compactEvents) {
         this.executor = executor;
         this.levels = levels;
         this.strategy = strategy;
@@ -68,6 +73,7 @@ public class MergeTreeCompactManager extends CompactFutureManager {
         this.numSortedRunStopTrigger = numSortedRunStopTrigger;
         this.keyComparator = keyComparator;
         this.rewriter = rewriter;
+        this.compactEvents = compactEvents;
     }
 
     @Override
@@ -120,7 +126,7 @@ public class MergeTreeCompactManager extends CompactFutureManager {
                                     unit ->
                                             unit.files().size() > 1
                                                     || unit.files().get(0).level()
-                                                            != unit.outputLevel());
+                                                    != unit.outputLevel());
         }
 
         optionalUnit.ifPresent(
@@ -140,17 +146,17 @@ public class MergeTreeCompactManager extends CompactFutureManager {
                         LOG.debug(
                                 "Submit compaction with files (name, level, size): "
                                         + levels.levelSortedRuns().stream()
-                                                .flatMap(lsr -> lsr.run().files().stream())
-                                                .map(
-                                                        file ->
-                                                                String.format(
-                                                                        "(%s, %d, %d)",
-                                                                        file.fileName(),
-                                                                        file.level(),
-                                                                        file.fileSize()))
-                                                .collect(Collectors.joining(", ")));
+                                        .flatMap(lsr -> lsr.run().files().stream())
+                                        .map(
+                                                file ->
+                                                        String.format(
+                                                                "(%s, %d, %d)",
+                                                                file.fileName(),
+                                                                file.level(),
+                                                                file.fileSize()))
+                                        .collect(Collectors.joining(", ")));
                     }
-                    submitCompaction(unit, dropDelete);
+                    submitCompaction(unit, dropDelete, fullCompaction);
                 });
     }
 
@@ -159,9 +165,17 @@ public class MergeTreeCompactManager extends CompactFutureManager {
         return levels;
     }
 
-    private void submitCompaction(CompactUnit unit, boolean dropDelete) {
+    private void submitCompaction(CompactUnit unit, boolean dropDelete, boolean fullCompaction) {
         MergeTreeCompactTask task =
-                new MergeTreeCompactTask(keyComparator, minFileSize, rewriter, unit, dropDelete);
+                new MergeTreeCompactTask(
+                        keyComparator,
+                        minFileSize,
+                        rewriter,
+                        unit,
+                        dropDelete,
+                        fullCompaction,
+                        compactEvents
+                );
         if (LOG.isDebugEnabled()) {
             LOG.debug(
                     "Pick these files (name, level, size) for compaction: {}",
@@ -176,7 +190,9 @@ public class MergeTreeCompactManager extends CompactFutureManager {
         taskFuture = executor.submit(task);
     }
 
-    /** Finish current task, and update result files to {@link Levels}. */
+    /**
+     * Finish current task, and update result files to {@link Levels}.
+     */
     @Override
     public Optional<CompactResult> getCompactionResult(boolean blocking)
             throws ExecutionException, InterruptedException {

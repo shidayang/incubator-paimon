@@ -52,7 +52,7 @@ public class AppendOnlyFileStore extends AbstractFileStore<InternalRow> {
             RowType partitionType,
             RowType bucketKeyType,
             RowType rowType) {
-        super(fileIO, schemaManager, schemaId, options, partitionType);
+        super(fileIO, schemaManager, schemaId, options, partitionType, null);
         this.bucketKeyType = bucketKeyType;
         this.rowType = rowType;
     }

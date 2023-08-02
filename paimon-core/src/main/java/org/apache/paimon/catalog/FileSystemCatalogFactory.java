@@ -20,11 +20,14 @@ package org.apache.paimon.catalog;
 
 import org.apache.paimon.fs.FileIO;
 import org.apache.paimon.fs.Path;
+import org.apache.paimon.listener.Listeners;
 import org.apache.paimon.table.TableType;
 
 import static org.apache.paimon.options.CatalogOptions.TABLE_TYPE;
 
-/** Factory to create {@link FileSystemCatalog}. */
+/**
+ * Factory to create {@link FileSystemCatalog}.
+ */
 public class FileSystemCatalogFactory implements CatalogFactory {
 
     public static final String IDENTIFIER = "filesystem";
@@ -35,11 +38,14 @@ public class FileSystemCatalogFactory implements CatalogFactory {
     }
 
     @Override
-    public Catalog create(FileIO fileIO, Path warehouse, CatalogContext context) {
+    public Catalog create(FileIO fileIO,
+                          Path warehouse,
+                          CatalogContext context,
+                          Listeners listeners) {
         if (!TableType.MANAGED.equals(context.options().get(TABLE_TYPE))) {
             throw new IllegalArgumentException(
                     "Only managed table is supported in File system catalog.");
         }
-        return new FileSystemCatalog(fileIO, warehouse, context.options().toMap());
+        return new FileSystemCatalog(fileIO, warehouse, context.options().toMap(), listeners);
     }
 }

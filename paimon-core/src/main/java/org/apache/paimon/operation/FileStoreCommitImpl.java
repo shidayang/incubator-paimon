@@ -26,6 +26,8 @@ import org.apache.paimon.fs.FileIO;
 import org.apache.paimon.fs.Path;
 import org.apache.paimon.io.DataFileMeta;
 import org.apache.paimon.io.DataFilePathFactory;
+import org.apache.paimon.listener.CommitEvents;
+import org.apache.paimon.listener.Event;
 import org.apache.paimon.manifest.FileKind;
 import org.apache.paimon.manifest.IndexManifestEntry;
 import org.apache.paimon.manifest.IndexManifestFile;
@@ -107,10 +109,14 @@ public class FileStoreCommitImpl implements FileStoreCommit {
     private final MemorySize manifestFullCompactionSize;
     private final int manifestMergeMinCount;
     private final boolean dynamicPartitionOverwrite;
-    @Nullable private final Comparator<InternalRow> keyComparator;
+    @Nullable
+    private final Comparator<InternalRow> keyComparator;
 
-    @Nullable private Lock lock;
+    @Nullable
+    private Lock lock;
     private boolean ignoreEmptyCommit;
+
+    private CommitEvents commitEvents;
 
     public FileStoreCommitImpl(
             FileIO fileIO,
@@ -128,7 +134,8 @@ public class FileStoreCommitImpl implements FileStoreCommit {
             MemorySize manifestFullCompactionSize,
             int manifestMergeMinCount,
             boolean dynamicPartitionOverwrite,
-            @Nullable Comparator<InternalRow> keyComparator) {
+            @Nullable Comparator<InternalRow> keyComparator,
+            CommitEvents commitEvents) {
         this.fileIO = fileIO;
         this.schemaManager = schemaManager;
         this.commitUser = commitUser;
@@ -149,6 +156,7 @@ public class FileStoreCommitImpl implements FileStoreCommit {
 
         this.lock = null;
         this.ignoreEmptyCommit = true;
+        this.commitEvents = commitEvents;
     }
 
     @Override
@@ -226,7 +234,22 @@ public class FileStoreCommitImpl implements FileStoreCommit {
                 baseEntries.addAll(
                         readAllEntriesFromChangedPartitions(
                                 latestSnapshot, appendTableFiles, compactTableFiles));
-                noConflictsOrFail(latestSnapshot.commitUser(), baseEntries, appendTableFiles);
+                try {
+                    noConflictsOrFail(latestSnapshot.commitUser(), baseEntries, appendTableFiles);
+                } catch (RuntimeException e) {
+                    commitEvents.commitEvent(
+                            appendTableFiles,
+                            appendChangelog,
+                            appendIndexFiles,
+                            committable.identifier(),
+                            committable.watermark(),
+                            committable.logOffsets(),
+                            Snapshot.CommitKind.APPEND,
+                            safeLatestSnapshotId,
+                            System.currentTimeMillis(),
+                            e.getMessage(),
+                            Event.State.FAILED);
+                }
                 safeLatestSnapshotId = latestSnapshot.id();
             }
 
@@ -239,6 +262,19 @@ public class FileStoreCommitImpl implements FileStoreCommit {
                     committable.logOffsets(),
                     Snapshot.CommitKind.APPEND,
                     safeLatestSnapshotId);
+
+            commitEvents.commitEvent(
+                    appendTableFiles,
+                    appendChangelog,
+                    appendIndexFiles,
+                    committable.identifier(),
+                    committable.watermark(),
+                    committable.logOffsets(),
+                    Snapshot.CommitKind.APPEND,
+                    safeLatestSnapshotId,
+                    System.currentTimeMillis(),
+                    null,
+                    Event.State.SUCCESS);
         }
 
         if (!compactTableFiles.isEmpty() || !compactChangelog.isEmpty()) {
@@ -250,7 +286,22 @@ public class FileStoreCommitImpl implements FileStoreCommit {
             // This optimization is mainly used to decrease the number of times we read from files.
             if (safeLatestSnapshotId != null) {
                 baseEntries.addAll(appendTableFiles);
-                noConflictsOrFail(latestSnapshot.commitUser(), baseEntries, compactTableFiles);
+                try {
+                    noConflictsOrFail(latestSnapshot.commitUser(), baseEntries, compactTableFiles);
+                } catch (RuntimeException e) {
+                    commitEvents.commitEvent(
+                            compactTableFiles,
+                            compactChangelog,
+                            Collections.emptyList(),
+                            committable.identifier(),
+                            committable.watermark(),
+                            committable.logOffsets(),
+                            Snapshot.CommitKind.COMPACT,
+                            safeLatestSnapshotId,
+                            System.currentTimeMillis(),
+                            e.getMessage(),
+                            Event.State.FAILED);
+                }
                 // assume this compact commit follows just after the append commit created above
                 safeLatestSnapshotId += 1;
             }
@@ -264,6 +315,18 @@ public class FileStoreCommitImpl implements FileStoreCommit {
                     committable.logOffsets(),
                     Snapshot.CommitKind.COMPACT,
                     safeLatestSnapshotId);
+            commitEvents.commitEvent(
+                    compactTableFiles,
+                    compactChangelog,
+                    Collections.emptyList(),
+                    committable.identifier(),
+                    committable.watermark(),
+                    committable.logOffsets(),
+                    Snapshot.CommitKind.COMPACT,
+                    safeLatestSnapshotId,
+                    System.currentTimeMillis(),
+                    null,
+                    Event.State.SUCCESS);
         }
     }
 
@@ -891,13 +954,13 @@ public class FileStoreCommitImpl implements FileStoreCommit {
         String baseEntriesString =
                 "Base entries are:\n"
                         + baseEntries.stream()
-                                .map(ManifestEntry::toString)
-                                .collect(Collectors.joining("\n"));
+                        .map(ManifestEntry::toString)
+                        .collect(Collectors.joining("\n"));
         String changesString =
                 "Changes are:\n"
                         + changes.stream()
-                                .map(ManifestEntry::toString)
-                                .collect(Collectors.joining("\n"));
+                        .map(ManifestEntry::toString)
+                        .collect(Collectors.joining("\n"));
         return new RuntimeException(
                 message
                         + "\n\n"

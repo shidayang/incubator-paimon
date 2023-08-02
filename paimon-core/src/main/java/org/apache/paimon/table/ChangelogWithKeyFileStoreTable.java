@@ -26,6 +26,7 @@ import org.apache.paimon.WriteMode;
 import org.apache.paimon.data.InternalRow;
 import org.apache.paimon.fs.FileIO;
 import org.apache.paimon.fs.Path;
+import org.apache.paimon.listener.Listeners;
 import org.apache.paimon.manifest.ManifestCacheFilter;
 import org.apache.paimon.mergetree.compact.DeduplicateMergeFunction;
 import org.apache.paimon.mergetree.compact.LookupMergeFunction;
@@ -59,25 +60,30 @@ import static org.apache.paimon.predicate.PredicateBuilder.pickTransformFieldMap
 import static org.apache.paimon.predicate.PredicateBuilder.splitAnd;
 import static org.apache.paimon.schema.SystemColumns.KEY_FIELD_PREFIX;
 
-/** {@link FileStoreTable} for {@link WriteMode#CHANGE_LOG} write mode with primary keys. */
+/**
+ * {@link FileStoreTable} for {@link WriteMode#CHANGE_LOG} write mode with primary keys.
+ */
 public class ChangelogWithKeyFileStoreTable extends AbstractFileStoreTable {
 
     private static final long serialVersionUID = 1L;
 
     private transient KeyValueFileStore lazyStore;
 
+    private Listeners listeners;
+
     ChangelogWithKeyFileStoreTable(FileIO fileIO, Path path, TableSchema tableSchema) {
-        this(fileIO, path, tableSchema, Lock.emptyFactory());
+        this(fileIO, path, tableSchema, Lock.emptyFactory(), Listeners.emptyListeners());
     }
 
     ChangelogWithKeyFileStoreTable(
-            FileIO fileIO, Path path, TableSchema tableSchema, Lock.Factory lockFactory) {
+            FileIO fileIO, Path path, TableSchema tableSchema, Lock.Factory lockFactory, Listeners listeners) {
         super(fileIO, path, tableSchema, lockFactory);
+        this.listeners = listeners;
     }
 
     @Override
     protected FileStoreTable copy(TableSchema newTableSchema) {
-        return new ChangelogWithKeyFileStoreTable(fileIO, path, newTableSchema, lockFactory);
+        return new ChangelogWithKeyFileStoreTable(fileIO, path, newTableSchema, lockFactory, listeners);
     }
 
     @Override
@@ -124,7 +130,8 @@ public class ChangelogWithKeyFileStoreTable extends AbstractFileStoreTable {
                             new RowType(extractor.keyFields(tableSchema)),
                             rowType,
                             extractor,
-                            mfFactory);
+                            mfFactory,
+                            listeners);
         }
         return lazyStore;
     }
@@ -245,9 +252,9 @@ public class ChangelogWithKeyFileStoreTable extends AbstractFileStoreTable {
                             sequenceGenerator == null
                                     ? KeyValue.UNKNOWN_SEQUENCE
                                     : sequenceAutoPadding == CoreOptions.SequenceAutoPadding.NONE
-                                            ? sequenceGenerator.generate(record.row())
-                                            : sequenceGenerator.generateWithPadding(
-                                                    record.row(), sequenceAutoPadding);
+                                    ? sequenceGenerator.generate(record.row())
+                                    : sequenceGenerator.generateWithPadding(
+                                    record.row(), sequenceAutoPadding);
                     return kv.replace(
                             record.primaryKey(),
                             sequenceNumber,
@@ -262,7 +269,8 @@ public class ChangelogWithKeyFileStoreTable extends AbstractFileStoreTable {
         static final ChangelogWithKeyKeyValueFieldsExtractor EXTRACTOR =
                 new ChangelogWithKeyKeyValueFieldsExtractor();
 
-        private ChangelogWithKeyKeyValueFieldsExtractor() {}
+        private ChangelogWithKeyKeyValueFieldsExtractor() {
+        }
 
         @Override
         public List<DataField> keyFields(TableSchema schema) {

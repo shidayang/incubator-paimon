@@ -24,6 +24,8 @@ import org.apache.paimon.format.FileFormatDiscover;
 import org.apache.paimon.fs.FileIO;
 import org.apache.paimon.index.HashIndexMaintainer;
 import org.apache.paimon.index.IndexMaintainer;
+import org.apache.paimon.listener.CompactEvents;
+import org.apache.paimon.listener.Listeners;
 import org.apache.paimon.manifest.ManifestCacheFilter;
 import org.apache.paimon.mergetree.compact.MergeFunctionFactory;
 import org.apache.paimon.operation.KeyValueFileStoreRead;
@@ -46,7 +48,9 @@ import static org.apache.paimon.predicate.PredicateBuilder.and;
 import static org.apache.paimon.predicate.PredicateBuilder.pickTransformFieldMapping;
 import static org.apache.paimon.predicate.PredicateBuilder.splitAnd;
 
-/** {@link FileStore} for querying and updating {@link KeyValue}s. */
+/**
+ * {@link FileStore} for querying and updating {@link KeyValue}s.
+ */
 public class KeyValueFileStore extends AbstractFileStore<KeyValue> {
 
     private static final long serialVersionUID = 1L;
@@ -59,6 +63,8 @@ public class KeyValueFileStore extends AbstractFileStore<KeyValue> {
     private final Supplier<RecordEqualiser> valueEqualiserSupplier;
     private final MergeFunctionFactory<KeyValue> mfFactory;
 
+    private final Listeners listeners;
+
     public KeyValueFileStore(
             FileIO fileIO,
             SchemaManager schemaManager,
@@ -70,7 +76,33 @@ public class KeyValueFileStore extends AbstractFileStore<KeyValue> {
             RowType valueType,
             KeyValueFieldsExtractor keyValueFieldsExtractor,
             MergeFunctionFactory<KeyValue> mfFactory) {
-        super(fileIO, schemaManager, schemaId, options, partitionType);
+        this(
+                fileIO,
+                schemaManager,
+                schemaId,
+                options,
+                partitionType,
+                bucketKeyType,
+                keyType,
+                valueType,
+                keyValueFieldsExtractor,
+                mfFactory,
+                Listeners.emptyListeners());
+    }
+
+    public KeyValueFileStore(
+            FileIO fileIO,
+            SchemaManager schemaManager,
+            long schemaId,
+            CoreOptions options,
+            RowType partitionType,
+            RowType bucketKeyType,
+            RowType keyType,
+            RowType valueType,
+            KeyValueFieldsExtractor keyValueFieldsExtractor,
+            MergeFunctionFactory<KeyValue> mfFactory,
+            Listeners listeners) {
+        super(fileIO, schemaManager, schemaId, options, partitionType, listeners);
         this.bucketKeyType = bucketKeyType;
         this.keyType = keyType;
         this.valueType = valueType;
@@ -78,6 +110,7 @@ public class KeyValueFileStore extends AbstractFileStore<KeyValue> {
         this.mfFactory = mfFactory;
         this.keyComparatorSupplier = new KeyComparatorSupplier(keyType);
         this.valueEqualiserSupplier = new ValueEqualiserSupplier(valueType);
+        this.listeners = listeners;
     }
 
     @Override
@@ -116,6 +149,7 @@ public class KeyValueFileStore extends AbstractFileStore<KeyValue> {
         if (bucketMode() == BucketMode.DYNAMIC) {
             indexFactory = new HashIndexMaintainer.Factory(newIndexFileHandler());
         }
+        CompactEvents compactEvents = new CompactEvents(listeners, pathFactory());
         return new KeyValueFileStoreWrite(
                 fileIO,
                 schemaManager,
@@ -131,7 +165,8 @@ public class KeyValueFileStore extends AbstractFileStore<KeyValue> {
                 newScan(true).withManifestCacheFilter(manifestFilter),
                 indexFactory,
                 options,
-                keyValueFieldsExtractor);
+                keyValueFieldsExtractor,
+                compactEvents);
     }
 
     private KeyValueFileStoreScan newScan(boolean forWrite) {
