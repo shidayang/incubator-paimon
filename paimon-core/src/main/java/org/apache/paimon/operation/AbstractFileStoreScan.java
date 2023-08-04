@@ -265,7 +265,9 @@ public abstract class AbstractFileStoreScan implements FileStoreScan {
             }
         }
 
-        return Pair.of(snapshot, files);
+        List<ManifestEntry> finalFiles = filterByStats(files);
+
+        return Pair.of(snapshot, finalFiles);
     }
 
     private List<ManifestFileMeta> readManifests(Snapshot snapshot) {
@@ -329,7 +331,9 @@ public abstract class AbstractFileStoreScan implements FileStoreScan {
     /** Note: Keep this thread-safe. */
     protected abstract boolean filterByStats(ManifestEntry entry);
 
-    protected boolean filterByStats(List<ManifestEntry> entries);
+    protected List<ManifestEntry> filterByStats(List<ManifestEntry> entries){
+        return entries;
+    };
 
     /** Note: Keep this thread-safe. */
     private List<ManifestEntry> readManifestFileMeta(ManifestFileMeta manifest) {

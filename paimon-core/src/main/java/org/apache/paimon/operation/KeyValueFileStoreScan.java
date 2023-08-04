@@ -19,6 +19,8 @@
 package org.apache.paimon.operation;
 
 import org.apache.paimon.KeyValueFileStore;
+import org.apache.paimon.data.BinaryRow;
+import org.apache.paimon.io.DataFileMeta;
 import org.apache.paimon.manifest.ManifestEntry;
 import org.apache.paimon.manifest.ManifestFile;
 import org.apache.paimon.manifest.ManifestList;
@@ -29,12 +31,22 @@ import org.apache.paimon.stats.FieldStatsConverters;
 import org.apache.paimon.types.RowType;
 import org.apache.paimon.utils.SnapshotManager;
 
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+
+import static org.apache.paimon.operation.FileStoreScan.Plan.groupByPartFiles;
+
 /** {@link FileStoreScan} for {@link KeyValueFileStore}. */
 public class KeyValueFileStoreScan extends AbstractFileStoreScan {
 
     private final FieldStatsConverters fieldStatsConverters;
 
     private Predicate keyFilter;
+
+    private Predicate valueFilter;
 
     public KeyValueFileStoreScan(
             RowType partitionType,
@@ -69,6 +81,11 @@ public class KeyValueFileStoreScan extends AbstractFileStoreScan {
         return this;
     }
 
+    public KeyValueFileStoreScan withValueFilter(Predicate predicate) {
+        this.valueFilter = predicate;
+        return this;
+    }
+
     /** Note: Keep this thread-safe. */
     @Override
     protected boolean filterByStats(ManifestEntry entry) {
@@ -80,5 +97,49 @@ public class KeyValueFileStoreScan extends AbstractFileStoreScan {
                                 .fields(
                                         fieldStatsConverters.getOrCreate(entry.file().schemaId()),
                                         entry.file().rowCount()));
+    }
+
+    @Override
+    protected List<ManifestEntry> filterByStats(List<ManifestEntry> entries) {
+        if(valueFilter == null) {
+            return entries;
+        }
+
+        Map<BinaryRow, Map<Integer, List<DataFileMeta>>> groupByPartFiles = groupByPartFiles(entries);
+        groupByPartFiles.values().stream().flatMap(m -> m.values().stream())
+                .map(this::filterHighestLevel)
+    }
+
+    private List<List<DataFileMeta>> splitByBucket(List<ManifestEntry> entries) {
+        Map<BinaryRow, Map<Integer, List<DataFileMeta>>> groupBy = new HashMap<>();
+        for (ManifestEntry entry : entries) {
+            groupBy.computeIfAbsent(entry.partition(), k -> new HashMap<>())
+                    .computeIfAbsent(entry.bucket(), k -> new ArrayList<>())
+                    .add(entry.file());
+        }
+        return groupBy;
+    }
+
+    private List<ManifestEntry> filterHighestLevel(List<ManifestEntry> entries) {
+        List<ManifestEntry> result = new ArrayList<>();
+
+        int maxLevel = entries.stream()
+                .mapToInt(e -> e.file().level()).max().orElse(-1);
+        for (ManifestEntry entry: entries) {
+            if (entry.file().level() == maxLevel) {
+                if (valueFilter.test(
+                        entry.file().rowCount(),
+                        entry.file()
+                                .valueStats()
+                                .fields(
+                                        fieldStatsConverters.getOrCreate(entry.file().schemaId()),
+                                        entry.file().rowCount()))) {
+                    result.add(entry);
+                }
+            } else {
+                result.add(entry);
+            }
+        }
+        return result;
     }
 }
