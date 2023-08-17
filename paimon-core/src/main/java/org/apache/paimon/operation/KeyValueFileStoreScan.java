@@ -20,7 +20,6 @@ package org.apache.paimon.operation;
 
 import org.apache.paimon.KeyValueFileStore;
 import org.apache.paimon.data.BinaryRow;
-import org.apache.paimon.io.DataFileMeta;
 import org.apache.paimon.manifest.ManifestEntry;
 import org.apache.paimon.manifest.ManifestFile;
 import org.apache.paimon.manifest.ManifestList;
@@ -33,16 +32,18 @@ import org.apache.paimon.utils.SnapshotManager;
 
 import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-
-import static org.apache.paimon.operation.FileStoreScan.Plan.groupByPartFiles;
+import java.util.stream.Collectors;
 
 /** {@link FileStoreScan} for {@link KeyValueFileStore}. */
 public class KeyValueFileStoreScan extends AbstractFileStoreScan {
 
-    private final FieldStatsConverters fieldStatsConverters;
+    private final FieldStatsConverters keyFieldStatsConverters;
+
+    private final FieldStatsConverters valueFieldStatsConverters;
+
+    private final boolean hasSequenceField;
 
     private Predicate keyFilter;
 
@@ -59,7 +60,8 @@ public class KeyValueFileStoreScan extends AbstractFileStoreScan {
             ManifestList.Factory manifestListFactory,
             int numOfBuckets,
             boolean checkNumOfBuckets,
-            Integer scanManifestParallelism) {
+            Integer scanManifestParallelism,
+            boolean hasSequenceField) {
         super(
                 partitionType,
                 bucketFilter,
@@ -70,9 +72,13 @@ public class KeyValueFileStoreScan extends AbstractFileStoreScan {
                 numOfBuckets,
                 checkNumOfBuckets,
                 scanManifestParallelism);
-        this.fieldStatsConverters =
+        keyFieldStatsConverters =
                 new FieldStatsConverters(
                         sid -> keyValueFieldsExtractor.keyFields(scanTableSchema(sid)), schemaId);
+        valueFieldStatsConverters =
+                new FieldStatsConverters(
+                        sid -> keyValueFieldsExtractor.valueFields(scanTableSchema(sid)), schemaId);
+        this.hasSequenceField = hasSequenceField;
     }
 
     public KeyValueFileStoreScan withKeyFilter(Predicate predicate) {
@@ -95,44 +101,49 @@ public class KeyValueFileStoreScan extends AbstractFileStoreScan {
                         entry.file()
                                 .keyStats()
                                 .fields(
-                                        fieldStatsConverters.getOrCreate(entry.file().schemaId()),
+                                        keyFieldStatsConverters.getOrCreate(
+                                                entry.file().schemaId()),
                                         entry.file().rowCount()));
     }
 
     @Override
-    protected List<ManifestEntry> filterByStats(List<ManifestEntry> entries) {
-        if(valueFilter == null) {
+    protected List<ManifestEntry> finalFilterByStats(List<ManifestEntry> entries) {
+        if (valueFilter == null || hasSequenceField) {
             return entries;
         }
 
-        Map<BinaryRow, Map<Integer, List<DataFileMeta>>> groupByPartFiles = groupByPartFiles(entries);
-        groupByPartFiles.values().stream().flatMap(m -> m.values().stream())
-                .map(this::filterHighestLevel)
+        List<List<ManifestEntry>> groupByBucketFiles = splitByBucket(entries);
+        return groupByBucketFiles.stream()
+                .map(this::filterMaxLevel)
+                .flatMap(List::stream)
+                .collect(Collectors.toList());
     }
 
-    private List<List<DataFileMeta>> splitByBucket(List<ManifestEntry> entries) {
-        Map<BinaryRow, Map<Integer, List<DataFileMeta>>> groupBy = new HashMap<>();
+    private List<List<ManifestEntry>> splitByBucket(List<ManifestEntry> entries) {
+        Map<BinaryRow, Map<Integer, List<ManifestEntry>>> groupBy = new HashMap<>();
         for (ManifestEntry entry : entries) {
             groupBy.computeIfAbsent(entry.partition(), k -> new HashMap<>())
                     .computeIfAbsent(entry.bucket(), k -> new ArrayList<>())
-                    .add(entry.file());
+                    .add(entry);
         }
-        return groupBy;
+        return groupBy.values().stream()
+                .flatMap(bucketMap -> bucketMap.values().stream())
+                .collect(Collectors.toList());
     }
 
-    private List<ManifestEntry> filterHighestLevel(List<ManifestEntry> entries) {
+    private List<ManifestEntry> filterMaxLevel(List<ManifestEntry> entries) {
         List<ManifestEntry> result = new ArrayList<>();
 
-        int maxLevel = entries.stream()
-                .mapToInt(e -> e.file().level()).max().orElse(-1);
-        for (ManifestEntry entry: entries) {
+        int maxLevel = entries.stream().mapToInt(e -> e.file().level()).max().orElse(-1);
+        for (ManifestEntry entry : entries) {
             if (entry.file().level() == maxLevel) {
                 if (valueFilter.test(
                         entry.file().rowCount(),
                         entry.file()
                                 .valueStats()
                                 .fields(
-                                        fieldStatsConverters.getOrCreate(entry.file().schemaId()),
+                                        valueFieldStatsConverters.getOrCreate(
+                                                entry.file().schemaId()),
                                         entry.file().rowCount()))) {
                     result.add(entry);
                 }

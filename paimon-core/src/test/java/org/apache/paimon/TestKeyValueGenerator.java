@@ -65,7 +65,7 @@ public class TestKeyValueGenerator {
     // * shopId:  int, 0 ~ 9             -------|
     // * orderId: long, any value        -------+----> primary key
     //
-    // * itemId: long, any value
+    // * itemId: long, [1 ~ 100]
     // * price & amount: int[], [1 ~ 100, 1 ~ 10]
     // * comment: string, length from 10 to 1000
     public static final RowType DEFAULT_ROW_TYPE =
@@ -358,7 +358,7 @@ public class TestKeyValueGenerator {
         }
 
         private void update() {
-            itemId = random.nextInt(10) == 0 ? null : random.nextLong();
+            itemId = random.nextInt(10) == 0 ? null : random.nextInt(100) + 1L;
             priceAmount =
                     random.nextInt(10) == 0
                             ? null

@@ -51,11 +51,13 @@ import org.apache.paimon.table.source.ValueContentRowDataRecordIterator;
 import org.apache.paimon.types.DataField;
 import org.apache.paimon.types.RowType;
 
+import java.util.HashSet;
 import java.util.List;
 import java.util.function.BiConsumer;
 import java.util.stream.Collectors;
 
 import static org.apache.paimon.predicate.PredicateBuilder.and;
+import static org.apache.paimon.predicate.PredicateBuilder.containsFields;
 import static org.apache.paimon.predicate.PredicateBuilder.pickTransformFieldMapping;
 import static org.apache.paimon.predicate.PredicateBuilder.splitAnd;
 import static org.apache.paimon.schema.SystemColumns.KEY_FIELD_PREFIX;
@@ -192,14 +194,32 @@ public class ChangelogWithKeyFileStoreTable extends AbstractFileStoreTable {
             // if we perform filter push down on values, data file 1 will be chosen, but data
             // file 2 will be ignored, and the final result will be key = a, value = 1 while the
             // correct result is an empty set
-            // TODO support value filter
+            //
+            // if we perform filter push down on values only in data file 1, the data file 1 and
+            // file 2 will be chosen,
+            // the final result will be empty set, it's correct.
+
             List<Predicate> keyFilters =
                     pickTransformFieldMapping(
                             splitAnd(predicate),
                             tableSchema.fieldNames(),
                             tableSchema.trimmedPrimaryKeys());
+
             if (keyFilters.size() > 0) {
                 ((KeyValueFileStoreScan) scan).withKeyFilter(and(keyFilters));
+            }
+
+            List<Predicate> valueFilters =
+                    splitAnd(predicate).stream()
+                            .filter(
+                                    s ->
+                                            !containsFields(
+                                                    s,
+                                                    new HashSet<>(
+                                                            tableSchema.trimmedPrimaryKeys())))
+                            .collect(Collectors.toList());
+            if (valueFilters.size() > 0) {
+                ((KeyValueFileStoreScan) scan).withValueFilter(and(predicate));
             }
         };
     }

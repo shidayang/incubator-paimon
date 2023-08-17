@@ -36,7 +36,6 @@ import org.junit.jupiter.api.Test;
 /** Statistics tests for {@link ChangelogWithKeyFileStoreTable}. */
 public class ChangelogWithKeyTableStatisticsTest extends FileStoreTableStatisticsTestBase {
 
-    /** {@link ChangelogWithKeyFileStoreTable} does not support filter value. */
     @Test
     public void testTableFilterValueStatistics() throws Exception {
         FileStoreTable table = writeData();
@@ -52,7 +51,7 @@ public class ChangelogWithKeyTableStatisticsTest extends FileStoreTableStatistic
                         null,
                         null,
                         null);
-        Assertions.assertThat(keyFilterSource.reportStatistics().getRowCount()).isEqualTo(9L);
+        Assertions.assertThat(keyFilterSource.reportStatistics().getRowCount()).isEqualTo(4L);
         // TODO validate column statistics
     }
 

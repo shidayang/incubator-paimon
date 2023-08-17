@@ -148,6 +148,16 @@ public class TestFileStore extends KeyValueFileStore {
         return commitData(kvs, partitionCalculator, bucketCalculator, new HashMap<>());
     }
 
+    public List<Snapshot> commitData(
+            List<KeyValue> kvs,
+            Function<KeyValue, BinaryRow> partitionCalculator,
+            Function<KeyValue, Integer> bucketCalculator,
+            boolean waitCompaction)
+            throws Exception {
+        return commitData(
+                kvs, partitionCalculator, bucketCalculator, new HashMap<>(), waitCompaction);
+    }
+
     public List<Snapshot> commitDataWatermark(
             List<KeyValue> kvs, Function<KeyValue, BinaryRow> partitionCalculator, Long watermark)
             throws Exception {
@@ -155,6 +165,7 @@ public class TestFileStore extends KeyValueFileStore {
                 kvs,
                 partitionCalculator,
                 kv -> 0,
+                false,
                 false,
                 null,
                 watermark,
@@ -168,11 +179,22 @@ public class TestFileStore extends KeyValueFileStore {
             Function<KeyValue, Integer> bucketCalculator,
             Map<Integer, Long> logOffsets)
             throws Exception {
+        return commitData(kvs, partitionCalculator, bucketCalculator, logOffsets, false);
+    }
+
+    public List<Snapshot> commitData(
+            List<KeyValue> kvs,
+            Function<KeyValue, BinaryRow> partitionCalculator,
+            Function<KeyValue, Integer> bucketCalculator,
+            Map<Integer, Long> logOffsets,
+            boolean waitCompaction)
+            throws Exception {
         return commitDataImpl(
                 kvs,
                 partitionCalculator,
                 bucketCalculator,
                 false,
+                waitCompaction,
                 null,
                 null,
                 Collections.emptyList(),
@@ -193,6 +215,7 @@ public class TestFileStore extends KeyValueFileStore {
                 partitionCalculator,
                 bucketCalculator,
                 true,
+                false,
                 null,
                 null,
                 Collections.emptyList(),
@@ -228,6 +251,7 @@ public class TestFileStore extends KeyValueFileStore {
                 partitionCalculator,
                 ignore -> bucket,
                 false,
+                false,
                 null,
                 null,
                 Arrays.asList(indexFiles),
@@ -239,6 +263,29 @@ public class TestFileStore extends KeyValueFileStore {
             Function<KeyValue, BinaryRow> partitionCalculator,
             Function<KeyValue, Integer> bucketCalculator,
             boolean ignorePreviousFiles,
+            Long identifier,
+            Long watermark,
+            List<IndexFileMeta> indexFiles,
+            BiConsumer<FileStoreCommit, ManifestCommittable> commitFunction)
+            throws Exception {
+        return commitDataImpl(
+                kvs,
+                partitionCalculator,
+                bucketCalculator,
+                ignorePreviousFiles,
+                false,
+                identifier,
+                watermark,
+                indexFiles,
+                commitFunction);
+    }
+
+    public List<Snapshot> commitDataImpl(
+            List<KeyValue> kvs,
+            Function<KeyValue, BinaryRow> partitionCalculator,
+            Function<KeyValue, Integer> bucketCalculator,
+            boolean ignorePreviousFiles,
+            boolean waitCompaction,
             Long identifier,
             Long watermark,
             List<IndexFileMeta> indexFiles,
@@ -280,7 +327,7 @@ public class TestFileStore extends KeyValueFileStore {
             for (Map.Entry<Integer, RecordWriter<KeyValue>> entryWithBucket :
                     entryWithPartition.getValue().entrySet()) {
                 CommitIncrement increment =
-                        entryWithBucket.getValue().prepareCommit(ignorePreviousFiles);
+                        entryWithBucket.getValue().prepareCommit(waitCompaction);
                 committable.addFileCommittable(
                         new CommitMessageImpl(
                                 entryWithPartition.getKey(),

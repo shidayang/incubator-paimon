@@ -35,6 +35,8 @@ import org.apache.paimon.types.IntType;
 import org.apache.paimon.types.RowType;
 import org.apache.paimon.utils.SnapshotManager;
 
+import org.apache.paimon.shade.guava30.com.google.common.collect.Lists;
+
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -134,6 +136,31 @@ public class KeyValueFileStoreScanTest {
         scan.withSnapshot(snapshot.id());
         scan.withKeyFilter(
                 new PredicateBuilder(RowType.of(new IntType(false))).equal(0, wantedShopId));
+
+        Map<BinaryRow, BinaryRow> expected =
+                store.toKvMap(
+                        data.stream()
+                                .filter(kv -> kv.key().getInt(0) == wantedShopId)
+                                .collect(Collectors.toList()));
+        runTestContainsAll(scan, snapshot.id(), expected);
+    }
+
+    @Test
+    public void testWithValueFilter() throws Exception {
+        ThreadLocalRandom random = ThreadLocalRandom.current();
+        List<KeyValue> data = generateData(random.nextInt(5000) + 1);
+        Snapshot snapshot = null;
+        for (List<KeyValue> sub : Lists.partition(data, 1000)) {
+            snapshot = writeDataWaitCompaction(sub);
+        }
+
+        long wantedShopId = data.get(random.nextInt(data.size())).value().getLong(4);
+
+        KeyValueFileStoreScan scan = store.newScan();
+        scan.withSnapshot(snapshot.id());
+        scan.withValueFilter(
+                new PredicateBuilder(TestKeyValueGenerator.DEFAULT_ROW_TYPE)
+                        .equal(4, wantedShopId));
 
         Map<BinaryRow, BinaryRow> expected =
                 store.toKvMap(
@@ -249,6 +276,11 @@ public class KeyValueFileStoreScanTest {
 
     private Snapshot writeData(List<KeyValue> kvs) throws Exception {
         List<Snapshot> snapshots = store.commitData(kvs, gen::getPartition, this::getBucket);
+        return snapshots.get(snapshots.size() - 1);
+    }
+
+    private Snapshot writeDataWaitCompaction(List<KeyValue> kvs) throws Exception {
+        List<Snapshot> snapshots = store.commitData(kvs, gen::getPartition, this::getBucket, true);
         return snapshots.get(snapshots.size() - 1);
     }
 
